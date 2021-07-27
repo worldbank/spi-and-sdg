@@ -1,0 +1,14 @@
+body{
+  font-size: 12pt;
+}
+h1.title {
+  font-size: 24px;
+  color: DarkRed;
+}
+
+h1 {
+  font-size: 20px;
+}
+h3 {
+  font-size: 16px;
+}

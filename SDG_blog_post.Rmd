@@ -1,0 +1,258 @@
+---
+title: "Reproduction File for: 'Are We There Yet? Many Countries Don't Report Progress on All SDGs according to the World Bank's New Statistical Performance Indicators'"
+author: "Lucas Kitzmüller, Brian Stacy, Daniel Gerszon Mahler"
+date: "7/27/2021"
+output:
+  html_document:
+    css: custom.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE, 
+                      message = FALSE) 
+```
+
+**This file produces the figures in the World Bank Blog Post [*`Are We There Yet? Many Countries Don't Report Progress on All SDGs according to the World Bank's New Statistical Performance Indicators'*](link). We document data access, manipulation, and visualization.**
+
+# 1. Set up
+
+### Libraries
+
+The following libraries are required to run the code. We install all packages as they existed on CRAN on July 01, 2021. This ensures package reproducibility.
+
+```{r libraries, results = 'hide'}
+packages<-c("knitr","checkpoint", "tidyverse", "scales", "ggridges")
+lapply(packages, require, character=TRUE)
+
+require(checkpoint)
+checkpoint("2021-07-01")
+```
+
+### Load Data
+
+The Statistical Performance Indicators data are available for direct download [here](https://datacatalog.worldbank.org/dataset/statistical-performance-indicators).
+
+The dataset used in this analysis was downloaded on July 22, 2021, and is saved in the Data folder of the repository.
+
+```{r load_data}
+all_content = readLines("01_Data/spi_index_labelled-2021-07-22.csv")
+skip_second = all_content[-2] # remove labels
+spi = read.csv(textConnection(skip_second))
+```
+
+# 2. Summary Statistics
+
+Here we print out the summary statistics mentioned in the blog post. 
+
+As of 2019, countries had reported data, on average, on only 55 percent of the SDG indicators within the last 5 years. (Note that the dimensions of SPI pillar 3 are weighted according to the number of goals, and therefore we can directly average the pillar 3 value.)
+
+```{r average_value_pil3}
+stat1 <- spi %>%
+  filter(date == 2019) %>%
+  summarise(mean = mean(SPI.INDEX.PIL3, na.rm = TRUE)) %>%
+  round()
+print(stat1[1,1])
+```
+
+No country reported data on more than 90 percent of the SDG indicators, while 36 countries reported on less than 20 percent of the SDG indicators.
+
+```{r number_countries_pil3}
+stat2 <- spi %>%
+  filter(date == 2019 & SPI.INDEX.PIL3 >= 90) %>%
+  summarise(number_of_countries = n()) 
+print(paste("Number of countries that reported on more than 90% of the SDG indicators:",stat2))
+
+stat3 <- spi %>%
+  filter(date == 2019 & SPI.INDEX.PIL3 <= 25) %>%
+  summarise(number_of_countries = n()) 
+print(paste("Number of countries that reported on less than 20% of the SDG indicators:",stat3))
+```
+
+For some goals for which countries previously reported few data, the progress was particularly strong. For example, average reporting on industry, innovation, and infrastructure (goal 9) improved from 40 percent to 53 percent.
+
+```{r average_value_pil3_industry}
+  stat2 <- spi %>%
+    filter(date == 2019 | date == 2015) %>%
+    group_by(date) %>%
+    summarise(mean = round(mean(SPI.D3.9.INDY, na.rm = TRUE),2))
+  stat2
+```
+
+High-income countries reported a mere 25 percent of the indicators on gender equality (goal 5). 
+
+```{r average_value_gender}
+  stat4 <- spi %>%
+    filter(date == 2019 | income == "High income") %>%
+    summarise(mean = round(mean(SPI.D3.5.GEND, na.rm = TRUE),2))
+  print(stat4[1,1])
+```
+
+# 3. Figures
+
+### SDG and MDG Goal Comparison
+
+```{r sdg_goals}
+
+df <- read_csv("01_data/SDG_and_MDG_goals.csv")
+df <- df[1:6,]
+
+df <- df %>%
+  mutate(measure = fct_relevel(measure, levels =  "Indicators", "Targets","Goals")) %>%
+  mutate(era = fct_relevel(era, levels = "SDGs", "MDGs"))
+
+ggplot(df, aes(fill=era, y=value, x=measure)) + 
+    geom_col(width = 0.5, position=position_dodge(0.65), stat="identity") +
+    coord_flip() +
+    theme_minimal() +
+    ylab("") +
+    xlab("") +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_blank(),
+      axis.text.x=element_blank(),
+      legend.position = "none")+
+    scale_fill_manual(values = c("dodgerblue4", "lightsteelblue1")) +
+    geom_text(aes(label= value),color = "black", position = position_dodge(width = 0.65), hjust = -0.1, size = 4) +
+    geom_text(aes(label= era, y = -10),color = "black", position = position_dodge(width = 0.65), size = 4 ) +
+    theme(axis.text.y  = element_text(size=12))
+
+ggsave("02_Figs/01_targets.png",
+     width = 8,
+     height = 3)  
+```
+
+### SDG Country Reporting by Goal
+
+````{R ind_year_lollipop}
+
+  df_reg <- spi %>%
+    select(date, contains("SPI.D3")) %>%
+      filter(date >= 2015 & date <= 2019) %>%
+      group_by(date) %>%
+    summarise_all(funs(mean), na.rm = TRUE) 
+
+  # Estimate goal-wise linear models to extrapolate
+  slopes <- rep(NA, 16)
+  for (i in seq(2,ncol(df_reg))){
+    reg <- lm(df_reg[[i]]~df_reg[[1]]) 
+    slopes[(i-1)] = reg$coefficients[2]
+  }
+
+  df <- spi %>%
+    select(date, contains("SPI.D3")) %>%
+    filter(date == 2015 | date == 2019) %>%
+    group_by(date) %>%
+    summarise_all(funs(mean), na.rm = TRUE)      
+  df <- as_tibble(cbind(indicator = names(df), t(df))) # transpose for easier plotting
+  df <- df %>% slice(2:nrow(df)) # remove names
+  df <- rename(df, value1 = 2)
+  df <- rename(df, value2 = 3)
+  df$value1 <- as.numeric(df$value1)
+  df$value2 <- as.numeric(df$value2)
+  
+  # add group
+  df <- df %>%
+    mutate(indicator_name = NA,
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.1.POV","GOAL 1: No Poverty"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.2.HNGR","GOAL 2: Zero Hunger"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.3.HLTH","GOAL 3: Good Health and Well-being"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.4.EDUC","GOAL 4: Quality Education"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.5.GEND","GOAL 5: Gender Equality"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.6.WTRS","GOAL 6: Clean Water and Sanitation"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.7.ENRG","GOAL 7: Affordable and Clean Energy"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.8.WORK","GOAL 8: Decent Work and Economic Growth"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.9.INDY","GOAL 9: Industry, Innovation and Infrastructure"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.10.NEQL","GOAL 10: Reduced Inequality"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.11.CITY","GOAL 11: Sustainable Cities and Communities"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.12.CNSP","GOAL 12: Responsible Consumption and Production"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.13.CLMT","GOAL 13: Climate Action"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.15.LAND","GOAL 15: Life on Land"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.16.INST","GOAL 16: Peace and Justice Strong Institutions"),
+           indicator_name = replace(indicator_name,indicator == "SPI.D3.17.PTNS","GOAL 17: Partnerships to achieve the Goal"))
+         
+  # Add linear prediction for year 2030
+  # (rows here are in the order of the columns when generating the slopes)
+  df$value3 <- (((df$value2 - df$value1) / (2019-2015)) * (2030-2019)) + df$value2
+  df$value4 <- NA
+  for (i in seq(16)){
+    df$value4[i] <- ((2030-2019) * slopes[i]) + df$value2[i] 
+  }
+  
+  # Reorder data
+  df <- df %>% 
+    arrange(value2) %>% 
+    mutate(indicator_name=factor(indicator_name, indicator_name))
+  
+  # Plot (inspiration: https://www.r-graph-gallery.com/303-lollipop-plot-with-2-values.html)
+  g2 <- ggplot(df) +
+    geom_point(aes(x=indicator_name, y=value1, color="2015"), size=3) +
+    geom_point(aes(x=indicator_name, y=value2, color="2019"), size=3) +
+    geom_segment(aes(x=indicator_name, xend=indicator_name, y=value1, yend=value2), color="dodgerblue4") +
+    geom_segment(aes(x=indicator_name, xend=indicator_name, y=value2, yend=value4), color="dodgerblue4", linetype = "dotted") +
+    geom_point(aes(x=indicator_name, y=value4, color="2030 (linear prediction)"), size=3, shape = 21, fill = "white") +
+    scale_colour_manual(name="",  
+                      values = c("2015"="lightsteelblue1", "2019"="dodgerblue4", "2030 (linear prediction)"="dodgerblue4")) +
+    guides(colour = guide_legend(override.aes = list(shape = c(16,16,1)))) +
+    coord_flip()+
+    theme_minimal() +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      legend.position = "top",
+      axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0))
+    ) +
+    xlab("") +
+    labs(title="") + #Progress on SDG data reporting - 2005 to 2019
+    theme(axis.text.y = element_text(hjust = 0)) +
+    ylab("Share of indicators in SDG with data reported (country mean)") +
+    scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent,
+                      limits = c(0,1))
+
+  g2
+  
+  ggsave("02_Figs/02_SGD_reporting_by_goal.png",
+         width = 8,
+         height = 5)  
+```
+
+### SDG Reporting by Income Goals
+
+````{R ridge}
+df <- spi %>%
+  select(date, SPI.INDEX.PIL3, income) %>%
+  filter(date == 2019) %>%
+  mutate(SPI.INDEX.PIL3 = (SPI.INDEX.PIL3 / 100))
+medians <- df %>% group_by(income) %>% 
+            summarise(SPI.INDEX.PIL3=median(SPI.INDEX.PIL3))
+df <- df %>%
+  mutate(income = fct_relevel(income, levels =  "Low income", "Lower middle income","Upper middle income", "High income"))
+g3 <- df %>%
+  ggplot(aes(x=SPI.INDEX.PIL3, y=income, fill = stat(x))) +
+  geom_density_ridges_gradient(quantile_lines = TRUE,quantiles = 2,scale = 0.8) +
+  scale_fill_continuous() +
+  scale_x_continuous(breaks = seq(0, 1, 0.2), 
+               label = percent,
+              limits = c(0,1)) +
+  geom_text(data=df %>% group_by(income) %>% 
+            summarise(SPI.INDEX.PIL3=median(SPI.INDEX.PIL3, na.rm = TRUE)),
+            aes(label=scales::percent(SPI.INDEX.PIL3, accuracy = 1L)), 
+            position=position_nudge(y=-0.1), colour="black", size=3.5) +
+  theme_ridges() + 
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_blank(),
+    legend.position = "none",
+    plot.caption = element_text(size = 10)
+  ) +
+  ylab("") + 
+  xlab("Share of SDG indicators with data reported (distribution of country means)") +
+  labs(caption = "Vertical lines represent median values")
+g3
+
+ggsave("02_Figs/03_SDG_reporting_by_income.png",
+     width = 8,
+     height = 5) 
+```
+

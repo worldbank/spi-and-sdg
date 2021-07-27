@@ -1,0 +1,9 @@
+﻿measure,era,value
+Goals,MDGs,8
+Goals,SDGs,17
+Targets,MDGs,21
+Targets,SDGs,169
+Indicators,MDGs,60
+Indicators,SDGs,231
+Source MDGs: https://millenniumindicators.un.org/unsd/mdg/Host.aspx?Content=Indicators/OfficialList.htm ,,
+Source SGDs: https://sdgs.un.org/goals; https://unstats.un.org/sdgs/indicators/indicators-list/,,
