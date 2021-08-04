@@ -5,6 +5,8 @@ date: "7/27/2021"
 output:
   html_document:
     css: custom.css
+bibliography: Rpackages.bib
+nocite: '@*'
 ---
 
 ```{r setup, include=FALSE}
@@ -256,3 +258,8 @@ ggsave("02_Figs/03_SDG_reporting_by_income.png",
      height = 5) 
 ```
 
+# References (R packages)
+
+````{R ref_packages, include=FALSE}
+write_bib(x = packages,file = "Rpackages.bib")
+````
